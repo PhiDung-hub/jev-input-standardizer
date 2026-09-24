@@ -212,7 +212,8 @@ pub struct FillerDecision {
 #[serde(rename_all = "camelCase")]
 pub struct RoleDecision {
     pub id: String,
-    /// The role used: Jev's answer when confident, else the heuristic's.
+    /// Jev's answer when confident, else the heuristic's, which names no section
+    /// (the part stays untagged) unless the draft is one segment Jev was not asked about.
     pub role: SegmentRole,
     /// Jev's top answer, applied or not.
     pub answer: Option<SegmentRole>,

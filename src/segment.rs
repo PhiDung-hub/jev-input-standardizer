@@ -223,8 +223,8 @@ pub(crate) fn merge_root_units(
     (texts, groups)
 }
 
-pub(crate) fn root_context(texts: &[String], roles: &[SegmentRole]) -> Json {
-    if let ([text], [role]) = (texts, roles) {
+pub(crate) fn root_context(texts: &[String], roles: &[Option<SegmentRole>]) -> Json {
+    if let ([text], [Some(role)]) = (texts, roles) {
         return Json::Object(BTreeMap::from([(
             role.as_str().to_owned(),
             Json::from(text.clone()),
@@ -235,7 +235,11 @@ pub(crate) fn root_context(texts: &[String], roles: &[SegmentRole]) -> Json {
         .zip(roles)
         .map(|(text, role)| {
             Json::Object(BTreeMap::from([
-                ("role".to_owned(), Json::from(role.as_str())),
+                // `null`: Jev confirmed no role, so no tag names one.
+                (
+                    "role".to_owned(),
+                    role.map_or(Json::Null, |role| Json::from(role.as_str())),
+                ),
                 ("text".to_owned(), Json::from(text.clone())),
             ]))
         })
@@ -530,7 +534,10 @@ mod tests {
 
     #[test]
     fn one_segment_uses_a_compact_role_key() {
-        let context = root_context(&["Compile the workspace".to_owned()], &[SegmentRole::Task]);
+        let context = root_context(
+            &["Compile the workspace".to_owned()],
+            &[Some(SegmentRole::Task)],
+        );
         let encoded = serde_json::to_string(&context).unwrap();
 
         assert_eq!(encoded, r#"{"task":"Compile the workspace"}"#);

@@ -26,7 +26,7 @@ const VENDORS: &[Vendor] = &[
 ];
 
 const UNKNOWN_REASON: &str = "XML tags: no target model known; both Anthropic and OpenAI models follow XML-delimited sections";
-const PLAIN_REASON: &str = "Plain text: the draft is one kind of content, where tags add nothing";
+const PLAIN_REASON: &str = "Plain text: no two parts of the draft hold different kinds of content Jev confirmed, so it keeps its own layout";
 const FALLBACK_REASON: &str =
     "the target's native format is unavailable because the text contains a colliding closing tag";
 

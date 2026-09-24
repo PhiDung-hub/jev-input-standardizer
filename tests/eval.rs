@@ -1,5 +1,6 @@
 //! Golden-case eval: Alt+G drafts through the live standardizer, each scored
-//! on four checks. Run it after any change that could move the output:
+//! on five checks worth six points (a wrong tag costs two, lost structure one).
+//! Run it after any change that could move the output:
 //!
 //! `cargo test -p jev-input-standardizer --test eval --release -- --ignored --nocapture`
 //!
@@ -38,7 +39,13 @@ struct Expect {
     notes: Option<bool>,
     #[serde(default)]
     keep: Vec<String>,
+    /// Draft phrases and the roles each may be tagged with (`task|constraint`).
+    #[serde(default)]
+    tags: Vec<(String, String)>,
 }
+
+/// Points per case: a wrong tag misstates intent, so it costs more than lost structure.
+const POINTS: usize = 6;
 
 #[derive(Serialize)]
 struct Outcome {
@@ -87,6 +94,54 @@ fn lost_words(draft: &str, output: &str, explained: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// (role, text) per segment of the JSON rendering, which every prose format renders
+/// from; `None` is untagged text.
+fn segments(result: &StandardizeResult) -> Vec<(Option<String>, String)> {
+    let json = result
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.encoding == Encoding::Json)
+        .map_or("null", |alternative| alternative.text.as_str());
+    let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+    let text = |value: &serde_json::Value| value.as_str().unwrap_or_default().to_owned();
+    if let Some(items) = value["segments"].as_array() {
+        let role = |item: &serde_json::Value| item["role"].as_str().map(str::to_owned);
+        return items
+            .iter()
+            .map(|item| (role(item), text(&item["text"])))
+            .collect();
+    }
+    value
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| *key != "standardizer_notes")
+        .map(|(key, value)| (Some(key.clone()), text(value)))
+        .collect()
+}
+
+/// Tagged output needs expected tags, and each anchor's segment untagged or tagged with
+/// one of its roles. Plain output shows no tag; the encoding check counts lost structure.
+fn tags_hold(
+    tags: &[(String, String)],
+    encoding: Encoding,
+    segments: &[(Option<String>, String)],
+) -> bool {
+    let fits = |(anchor, roles): &(String, String)| {
+        let anchor = anchor.to_lowercase();
+        let found = segments
+            .iter()
+            .find(|(_, text)| text.to_lowercase().contains(&anchor));
+        found.is_some_and(|(role, _)| allowed(role.as_deref(), roles))
+    };
+    encoding == Encoding::Plain || (!tags.is_empty() && tags.iter().all(fits))
+}
+
+/// Untagged, or tagged with one of `roles` (`task|constraint`).
+fn allowed(role: Option<&str>, roles: &str) -> bool {
+    role.is_none_or(|role| roles.split('|').any(|allowed| allowed == role))
+}
+
 fn score(case: &Case, result: &StandardizeResult) -> Outcome {
     let explained: Vec<&str> = result
         .filler_decisions
@@ -104,11 +159,12 @@ fn score(case: &Case, result: &StandardizeResult) -> Outcome {
     let lost = lost_words(&case.draft, &result.text, &explained);
     let has_notes = result.text.contains("standardizer_notes");
     let checks = [
-        ("lossless", lost.is_empty()),
-        ("encoding", result.encoding == case.expect.encoding),
+        ("lossless", lost.is_empty(), 1),
+        ("encoding", result.encoding == case.expect.encoding, 1),
         (
             "notes",
             case.expect.notes.is_none_or(|want| want == has_notes),
+            1,
         ),
         (
             "keep",
@@ -116,15 +172,25 @@ fn score(case: &Case, result: &StandardizeResult) -> Outcome {
                 .keep
                 .iter()
                 .all(|phrase| result.text.contains(phrase.as_str())),
+            1,
+        ),
+        (
+            "tags",
+            tags_hold(&case.expect.tags, result.encoding, &segments(result)),
+            2,
         ),
     ];
     Outcome {
         id: case.id.clone(),
-        passed: checks.iter().filter(|(_, ok)| *ok).count(),
+        passed: checks
+            .iter()
+            .filter(|(_, ok, _)| *ok)
+            .map(|(_, _, points)| points)
+            .sum(),
         failed: checks
             .iter()
-            .filter(|(_, ok)| !ok)
-            .map(|(name, _)| *name)
+            .filter(|(_, ok, _)| !ok)
+            .map(|(name, _, _)| *name)
             .collect(),
         encoding: result.encoding,
         lost,
@@ -166,7 +232,7 @@ async fn golden_cases_hold_their_baseline() {
             .unwrap();
         let outcome = score(case, &result);
         eprintln!(
-            "{:<18} {}/4 {:<9} {}{}",
+            "{:<18} {}/{POINTS} {:<9} {}{}",
             outcome.id,
             outcome.passed,
             format!("{:?}", outcome.encoding).to_lowercase(),
@@ -184,7 +250,7 @@ async fn golden_cases_hold_their_baseline() {
         .iter()
         .map(|outcome| (outcome.id.as_str(), outcome.passed))
         .collect();
-    eprintln!("total {total}/{}", 4 * outcomes.len());
+    eprintln!("total {total}/{}", POINTS * outcomes.len());
     // How often Jev is sure of a segment's role; below the bar the draft keeps its layout.
     let confidences: Vec<f64> = outcomes
         .iter()
@@ -243,4 +309,23 @@ fn lost_words_ignore_markup_and_explained_changes() {
     assert_eq!(lost_words(draft, output, &["Please"]), ["the"]);
     assert!(lost_words(draft, output, &["Please", "the"]).is_empty());
     assert!(lost_words("a a", "a", &[]).len() == 1);
+}
+
+#[test]
+fn tags_pass_untagged_text_and_allowed_roles_only() {
+    let tags = [
+        ("fix the parser".to_owned(), "task".to_owned()),
+        ("check back".to_owned(), "context".to_owned()),
+    ];
+    let segment = |role: Option<&str>, text: &str| (role.map(str::to_owned), text.to_owned());
+    let right = [
+        segment(Some("task"), "Fix the parser."),
+        segment(None, "I will check back."),
+    ];
+    let wrong = [segment(Some("task"), "Fix the parser. I will check back.")];
+    assert!(tags_hold(&tags, Encoding::Xml, &right));
+    assert!(!tags_hold(&tags, Encoding::Markdown, &wrong));
+    assert!(!tags_hold(&tags, Encoding::Xml, &right[..1]));
+    assert!(tags_hold(&tags, Encoding::Plain, &wrong));
+    assert!(!tags_hold(&[], Encoding::Xml, &right));
 }

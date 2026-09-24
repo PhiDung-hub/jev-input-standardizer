@@ -62,14 +62,15 @@ pub(crate) fn apply(
 
 pub(crate) fn provisional_context(source: &Json, units: &[TextUnit], prose: bool) -> Json {
     let texts: Vec<_> = units.iter().map(|unit| unit.text.clone()).collect();
-    rebuild_context(source, units, &texts, &heuristic_roles(units), prose)
+    let roles: Vec<_> = heuristic_roles(units).into_iter().map(Some).collect();
+    rebuild_context(source, units, &texts, &roles, prose)
 }
 
 fn rebuild_context(
     source: &Json,
     units: &[TextUnit],
     texts: &[String],
-    roles: &[SegmentRole],
+    roles: &[Option<SegmentRole>],
     prose: bool,
 ) -> Json {
     if prose {
@@ -95,16 +96,15 @@ fn segmentation(
             let confident = probability.filter(|value| {
                 *value >= options.min_confidence || *value <= 1.0 - options.min_confidence
             });
-            // Confidently different roles on each side are a boundary in themselves.
-            let roles_differ = match (
-                roles.get(boundary.left_unit_index),
-                roles.get(boundary.right_unit_index),
-            ) {
-                (Some(left), Some(right)) => {
-                    left.applied && right.applied && left.role != right.role
-                }
-                _ => false,
-            };
+            // Confidently different roles on each side are a boundary in themselves, also
+            // across parts Jev was unsure of, which split off whole at their edges.
+            let (left, right) = roles.split_at(boundary.right_unit_index.min(roles.len()));
+            let edge = left.last().is_some_and(|role| role.applied)
+                || right.first().is_some_and(|role| role.applied);
+            let left = left.iter().rev().find(|role| role.applied);
+            let right = right.iter().find(|role| role.applied);
+            let roles_differ = edge
+                && matches!((left, right), (Some(left), Some(right)) if left.role != right.role);
             // Otherwise, uncertain either way keeps the source layout's own break.
             let split = match confident {
                 Some(value) => value >= options.min_confidence,
@@ -215,11 +215,13 @@ fn roles(
 }
 
 /// A merged segment takes the role Jev was most confident about; ties keep the earliest.
+/// A role Jev did not confirm names none (`None`: untagged text), except for a lone
+/// segment Jev was never asked about, which keeps the heuristic's.
 fn grouped_roles(
     groups: &[Vec<usize>],
     roles: &[SegmentRole],
     decisions: &[RoleDecision],
-) -> Vec<SegmentRole> {
+) -> Vec<Option<SegmentRole>> {
     let confidence = |index: usize| decisions[index].confidence.unwrap_or(-1.0);
     groups
         .iter()
@@ -230,7 +232,8 @@ fn grouped_roles(
                 .max_by(|&&left, &&right| confidence(left).total_cmp(&confidence(right)))
                 .copied()
                 .unwrap_or(group[0]);
-            roles[best]
+            let unasked = groups.len() == 1 && decisions[best].confidence.is_none();
+            (decisions[best].applied || unasked).then_some(roles[best])
         })
         .collect()
 }
@@ -307,12 +310,40 @@ mod tests {
 
         assert_eq!(
             grouped_roles(&[vec![0, 1, 2]], &roles, &decisions),
-            [SegmentRole::Task]
+            [Some(SegmentRole::Task)]
         );
         let decisions = [decision(Some(0.2)), decision(Some(0.9)), decision(None)];
         assert_eq!(
             grouped_roles(&[vec![0, 1], vec![2]], &roles, &decisions),
-            [SegmentRole::Constraint, SegmentRole::Question]
+            [Some(SegmentRole::Constraint), Some(SegmentRole::Question)]
+        );
+    }
+
+    #[test]
+    fn a_role_jev_did_not_confirm_names_no_section() {
+        let decision = |confidence, applied| RoleDecision {
+            id: String::new(),
+            role: SegmentRole::Task,
+            answer: None,
+            confidence,
+            applied,
+        };
+        let roles = [SegmentRole::Constraint, SegmentRole::Task];
+        let incident = [decision(Some(0.89), true), decision(Some(0.2), false)];
+        assert_eq!(
+            grouped_roles(&[vec![0], vec![1]], &roles, &incident),
+            [Some(SegmentRole::Constraint), None]
+        );
+        let unsure = [decision(Some(0.6), false), decision(Some(0.2), false)];
+        assert_eq!(grouped_roles(&[vec![0, 1]], &roles, &unsure), [None]);
+        let unasked = [decision(None, false), decision(None, false)];
+        assert_eq!(
+            grouped_roles(&[vec![0, 1]], &roles, &unasked),
+            [Some(SegmentRole::Constraint)]
+        );
+        assert_eq!(
+            grouped_roles(&[vec![0], vec![1]], &roles, &unasked),
+            [None, None]
         );
     }
 }

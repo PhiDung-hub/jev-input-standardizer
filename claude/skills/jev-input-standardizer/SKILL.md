@@ -17,8 +17,9 @@ hook can be quoted.
 The prompt goes out as plain text (the user's words with approved edits, in
 their layout) when it is one kind of content, and as XML sections named after
 Anthropic's guide (`<instructions>`, `<constraints>`, `<questions>`, `<context>`,
-…; neighbours of one role share a section) when it mixes kinds; Markdown
-sections with the same names for GPT targets.
+…; neighbours of one role share a section) when it mixes kinds Jev confirmed;
+Markdown sections with the same names for GPT targets. A part whose kind Jev
+did not confirm stays untagged text between the sections.
 `JEV_STANDARDIZER_FORMAT=plain|xml|markdown|json` sets the user's default, and
 on the review screen `p`, `x`, `m`, or `j` switch the shown format instantly.
 Anything the standardizer adds (research and answer hints, quoted outside

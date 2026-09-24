@@ -14,9 +14,10 @@ request payload, plugin file, or preview.
 - POST `{"context": ..., "options": ...}` to `/standardize` when an application
   needs the actual downstream payload. Send the response's `text` field to its
   LLM; `alternatives` holds the plain, XML, Markdown, and JSON renderings.
-- Prose of one kind of content (every segment the same role) goes out as plain
+- Prose of one kind of content (every role Jev confirmed the same) goes out as plain
   text: the user's words with approved edits, in their layout, notes in a small
-  XML block after them. Mixed prose uses the target's format: Markdown `##`
+  XML block after them. A part whose role Jev did not confirm stays untagged
+  (`"role": null` in JSON). Mixed prose uses the target's format: Markdown `##`
   sections for GPT/Codex targets, XML tags for Claude (the model name decides,
   the harness is the fallback). `JEV_STANDARDIZER_FORMAT` or `options.format`
   overrides it; `encodingDecision.reason` says which rule applied. Structured

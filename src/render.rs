@@ -87,7 +87,8 @@ pub(crate) fn encode_markdown(value: &Json) -> Option<String> {
             Json::Array(items) if key == "segments" => sections.extend(
                 grouped(items)?
                     .into_iter()
-                    .map(|(name, text)| section(name, &text)),
+                    .enumerate()
+                    .map(|(index, group)| markdown_section(index, group)),
             ),
             _ => return None,
         }
@@ -132,10 +133,21 @@ pub(crate) fn roles(value: &Json) -> Vec<&str> {
             Json::Array(items) if key == "segments" => items
                 .iter()
                 .filter_map(|item| role_text(item).map(|(role, _)| role))
+                .filter(|role| !role.is_empty())
                 .collect(),
             _ => vec![key.as_str()],
         })
         .collect()
+}
+
+/// Untagged text after a section follows a rule, so it does not read as part of it;
+/// sections are joined by a blank line, so the rule never underlines a heading.
+fn markdown_section(index: usize, (name, text): (&str, String)) -> String {
+    match (name, index) {
+        ("", 0) => text,
+        ("", _) => format!("---\n{text}"),
+        _ => section(name, &text),
+    }
 }
 
 fn section(key: &str, text: &str) -> String {
@@ -185,13 +197,19 @@ fn role_text(item: &Json) -> Option<(&str, &str)> {
     };
     match (segment.get("role"), segment.get("text")) {
         (Some(Json::String(role)), Some(Json::String(text))) => Some((role, text)),
+        // Untagged: the user's text where Jev confirmed no role.
+        (Some(Json::Null), Some(Json::String(text))) => Some(("", text)),
         _ => None,
     }
 }
 
 fn push_segments(output: &mut String, items: &[Json]) -> Option<()> {
     for (name, text) in grouped(items)? {
-        push_element(output, name, &text)?;
+        if name.is_empty() {
+            let _ = writeln!(output, "{text}");
+        } else {
+            push_element(output, name, &text)?;
+        }
     }
     Some(())
 }
@@ -279,8 +297,13 @@ mod tests {
             items
                 .iter()
                 .map(|(role, text)| {
+                    let role = if role.is_empty() {
+                        Json::Null
+                    } else {
+                        Json::from(*role)
+                    };
                     Json::Object(BTreeMap::from([
-                        ("role".to_owned(), Json::from(*role)),
+                        ("role".to_owned(), role),
                         ("text".to_owned(), Json::from(*text)),
                     ]))
                 })
@@ -334,6 +357,29 @@ mod tests {
             encode_markdown(&value).unwrap(),
             "## Instructions\nFix the parser.\n\n## Constraints\nKeep the API.\nDo not add dependencies.\n\n## Questions\nHow do I test it?"
         );
+    }
+
+    #[test]
+    fn unconfirmed_segments_stay_untagged_and_are_no_kind() {
+        let value = Json::Object(BTreeMap::from([(
+            "segments".to_owned(),
+            segments(&[
+                ("", "If it breaks,"),
+                ("task", "Fix it."),
+                ("", "I will check back."),
+                ("question", "Why?"),
+            ]),
+        )]));
+
+        assert_eq!(
+            encode_xml(&value).unwrap(),
+            "If it breaks,\n<instructions>Fix it.</instructions>\nI will check back.\n<questions>Why?</questions>"
+        );
+        assert_eq!(
+            encode_markdown(&value).unwrap(),
+            "If it breaks,\n\n## Instructions\nFix it.\n\n---\nI will check back.\n\n## Questions\nWhy?"
+        );
+        assert_eq!(roles(&value), ["task", "question"]);
     }
 
     #[test]

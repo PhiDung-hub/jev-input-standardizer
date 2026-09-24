@@ -217,7 +217,12 @@ async fn one_fanout_call_drives_roles_filler_and_encoding() {
     assert_eq!(result.stats.jev_input_tokens, 420);
     assert_eq!(result.stats.filler_removed, 1);
     assert!(!result.text.contains("Please implement"));
-    assert!(result.text.contains("Just do not change"));
+    // s10 has no role answer, so it stays untagged instead of a guessed <instructions>.
+    assert!(
+        result
+            .text
+            .ends_with("</constraints>\nJust do not change the public API.")
+    );
     assert_eq!(result.role_decisions[1].role, SegmentRole::Constraint);
     assert_eq!(result.encoding, Encoding::Xml);
     assert_eq!(result.encoding_decision.source, DecisionSource::Heuristic);
@@ -381,7 +386,7 @@ async fn jev_drives_sentence_segmentation_while_prose_ignores_encoding_votes() {
                         "probabilities": {"task": 0.91, "context": 0.09}
                     },
                     "role_s2": {
-                        "type": "choice", "choice": "constraint", "confidence": 0.2,
+                        "type": "choice", "choice": "constraint", "confidence": 0.93,
                         "probabilities": {"constraint": 0.93, "context": 0.07}
                     }
                 }
@@ -1002,5 +1007,124 @@ async fn confidently_different_roles_split_even_when_the_split_itself_is_uncerta
     assert_eq!(
         result.text,
         "<instructions>Fix the parser.</instructions>\n<constraints>Do not change the public API.</constraints>"
+    );
+}
+
+/// Standardizes `draft` for `target` against a mocked Jev giving `answers`.
+async fn judged(
+    draft: &str,
+    target: &str,
+    answers: serde_json::Value,
+) -> jev_input_standardizer::StandardizeResult {
+    let server = MockServer::start_async().await;
+    server
+        .mock_async(|when, then| {
+            when.method(POST).path("/v1/systemone");
+            then.status(200).json_body(serde_json::json!({
+                "model": "jev-test",
+                "usage": {"input_tokens": 80, "output_tokens": 4},
+                "answers": answers
+            }));
+        })
+        .await;
+    let client = Client::builder()
+        .api_key("test")
+        .base_url(server.base_url())
+        .build()
+        .unwrap();
+    let options = StandardizeOptions {
+        host: Some("claude".to_owned()),
+        target_model: Some(target.to_owned()),
+        jev_min_chars: 0,
+        ..StandardizeOptions::default()
+    };
+    standardize(&client, &Json::from(draft), &options)
+        .await
+        .unwrap()
+}
+
+fn role(choice: &str, confidence: f64) -> serde_json::Value {
+    serde_json::json!({"type": "choice", "choice": choice, "confidence": confidence, "probabilities": {choice: confidence}})
+}
+
+fn shown(result: &jev_input_standardizer::StandardizeResult, encoding: Encoding) -> &str {
+    let alternative = result
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.encoding == encoding);
+    &alternative.unwrap().text
+}
+
+#[tokio::test]
+async fn a_role_jev_did_not_confirm_is_never_tagged() {
+    // The live incident: Jev confirmed the split and s1, but said context at only 0.20.
+    let draft = "Once you face any decision, just choose the recommended one. I will check again in 7 hours";
+    let answers = serde_json::json!({
+        "split_b1": {"type": "noul", "noul": 0.85},
+        "role_s1": role("constraint", 0.89),
+        "role_s2": role("context", 0.2),
+    });
+    let result = judged(draft, "claude-opus-5-5", answers).await;
+
+    assert!(result.segmentation_decisions[0].split);
+    assert!(!result.role_decisions[1].applied);
+    assert_eq!(result.encoding, Encoding::Plain);
+    assert_eq!(result.text, draft);
+    assert!(
+        result
+            .encoding_decision
+            .reason
+            .contains("keeps its own layout")
+    );
+    assert_eq!(
+        shown(&result, Encoding::Xml),
+        "<constraints>Once you face any decision, just choose the recommended one.</constraints>\nI will check again in 7 hours"
+    );
+    let payload: serde_json::Value = serde_json::from_str(shown(&result, Encoding::Json)).unwrap();
+    assert!(payload["segments"][1]["role"].is_null());
+
+    // Between two confirmed kinds, an unsure run splits off whole and untagged.
+    let answers = serde_json::json!({
+        "role_s1": role("task", 0.9),
+        "role_s2": role("context", 0.3),
+        "role_s3": role("context", 0.2),
+        "role_s4": role("constraint", 0.9),
+    });
+    let draft =
+        "Fix the parser. I was away. I will check again in 7 hours. Do not change the public API.";
+    let result = judged(draft, "claude-opus-5-5", answers).await;
+    assert_eq!(
+        result.text,
+        "<instructions>Fix the parser.</instructions>\nI was away. I will check again in 7 hours.\n<constraints>Do not change the public API.</constraints>"
+    );
+}
+
+#[tokio::test]
+async fn confirmed_kinds_split_around_a_part_jev_was_unsure_of() {
+    // The live-test shape: both splits uncertain, the middle role unconfirmed.
+    let draft = "how do we live test this? prepare the environment then I will create an account. Ensure the skill works as well";
+    let answers = serde_json::json!({
+        "split_b1": {"type": "noul", "noul": 0.74},
+        "split_b2": {"type": "noul", "noul": 0.64},
+        "role_s1": role("question", 0.97),
+        "role_s2": role("task", 0.58),
+        "role_s3": role("task", 0.88),
+    });
+    let claude = judged(draft, "claude-opus-5-5", answers.clone()).await;
+    let gpt = judged(draft, "gpt-6-sol", answers).await;
+
+    assert!(
+        claude
+            .segmentation_decisions
+            .iter()
+            .all(|split| split.split)
+    );
+    assert_eq!(
+        claude.text,
+        "<questions>how do we live test this?</questions>\nprepare the environment then I will create an account.\n<instructions>Ensure the skill works as well</instructions>"
+    );
+    assert_eq!(
+        gpt.text,
+        "## Questions\nhow do we live test this?\n\n---\nprepare the environment then I will create an account.\n\n## Instructions\nEnsure the skill works as well"
     );
 }

@@ -414,9 +414,14 @@ mod tests {
         });
         let drawn = draw(&result, result.encoding, false);
         assert!(
-            drawn.contains("│ ? s2 question 0.55 · s1|s2 split 0.62 · web research 0.75 · 0.0 s")
+            drawn.starts_with("── plain for claude-opus-5-5 · mixed content, kept as typed ──")
         );
-        assert!(!drawn.contains("s1 task"));
+        assert!(drawn.contains(
+            "│ ? s1 task 0.55 · s2 question 0.55 · s1|s2 split 0.62 · web research 0.75 · 0.0 s"
+        ));
+        let mut lone = result.clone();
+        lone.role_decisions.truncate(1);
+        assert!(!draw(&lone, lone.encoding, false).contains("s1 task"));
 
         result.segmentation_decisions[0].split = true;
         assert!(!draw(&result, result.encoding, false).contains("split 0.62"));

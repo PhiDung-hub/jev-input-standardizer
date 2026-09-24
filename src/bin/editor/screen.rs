@@ -93,11 +93,19 @@ fn header(response: &StandardizeResult, shown: Encoding) -> String {
     ) {
         (false, _, _) => "your choice",
         (true, DecisionSource::Forced, _) => "your default",
+        (true, _, Encoding::Plain) if mixed(response) => "mixed content, kept as typed",
         (true, _, Encoding::Plain) => "one kind of content",
         (true, _, Encoding::Xml | Encoding::Markdown) => "mixed content",
         _ => "fallback",
     };
     format!("{} for {target} · {why}", label(shown))
+}
+
+/// Parts of different kinds (Jev's role where confirmed, else the heuristic's) that went
+/// out plain were kept as typed, not judged one kind of content.
+fn mixed(response: &StandardizeResult) -> bool {
+    let roles = &response.role_decisions;
+    roles.windows(2).any(|pair| pair[0].role != pair[1].role)
 }
 
 /// Jev's judgments on one line: what applied collapses to its answer (✓); what Jev
@@ -191,10 +199,18 @@ const MAX_UNCERTAIN: usize = 4;
 
 fn uncertain(response: &StandardizeResult) -> Vec<String> {
     let min = response.min_confidence;
+    // In a draft of several parts an unconfirmed part goes out untagged, whatever the
+    // fallback guessed, so every unsure answer there could change the prompt.
+    let several = response.role_decisions.len() > 1;
     let roles = response
         .role_decisions
         .iter()
-        .filter(|role| !role.applied && role.answer.is_some_and(|answer| answer != role.role))
+        .filter(|role| {
+            !role.applied
+                && role
+                    .answer
+                    .is_some_and(|answer| several || answer != role.role)
+        })
         .filter_map(|role| {
             let answer = role.answer?.as_str();
             Some(format!("{} {answer} {:.2}", role.id, role.confidence?))

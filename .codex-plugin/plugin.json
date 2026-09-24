@@ -1,6 +1,6 @@
 {
   "name": "jev-input-standardizer",
-  "version": "0.11.4+codex.20260924060952",
+  "version": "0.12.0+codex.20260924125725",
   "description": "Preview and accept Jev-standardized drafts in the target model's native format.",
   "author": {
     "name": "Local developer"

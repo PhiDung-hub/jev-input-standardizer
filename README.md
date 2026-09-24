@@ -87,7 +87,7 @@ payload would prevent the command from running.
 Every Jev judgment applies only at `minConfidence` (0.8 by default): a Choice's
 top answer at or above it, a Noul at or above it (yes) or at or below 0.2 (no).
 Anything less falls back to the user's own layout and wording (a split keeps the
-source's break, a role its heuristic, an edit or filler deletion is skipped),
+source's break, a part's role goes untagged, an edit or filler deletion is skipped),
 and still shows on the review screen. There is no second segmentation or
 encoding call.
 An action and its follow-up question can therefore become separate `task` and
@@ -101,10 +101,12 @@ Irregular or nested data never receives a CSV candidate.
 Prose is not put to a per-prompt vote. Anthropic's guide says XML tags help
 "especially when your prompt mixes instructions, context, examples, and
 variable inputs", names no format as better, and notes that a prompt's style
-can shape the reply's. So a draft of one kind of content (every segment the
-same role) goes out as plain text: your words with the approved edits, in their
-original layout, with any notes in a small XML block after them. A draft that
-mixes kinds goes out in its target's format, where the model name decides
+can shape the reply's. So a draft of one kind of content (every role Jev
+confirmed the same) goes out as plain text: your words with the approved edits, in their
+original layout, with any notes in a small XML block after them. A part whose
+role Jev did not confirm is no kind: it stays your own untagged text between the
+sections (after a `---` rule in Markdown, `"role": null` in JSON). A draft that
+mixes kinds Jev confirmed goes out in its target's format, where the model name decides
 (`claude-*` → Anthropic; `gpt-*`, `codex-*`, `o1`/`o3`/`o4` → OpenAI), with the
 harness as the fallback:
 
@@ -190,7 +192,8 @@ returning to Codex or Claude Code does not leave the host TUI mixed with the
 prompt. While that screen is active, it enables terminal newline processing so
 lines stay aligned even when a host TUI disables it, then restores the host's
 exact terminal mode on exit. The screen is a header (format, target, and why:
-"one kind of content", "mixed content", "your default", or "your choice"), the
+"one kind of content", "mixed content", "mixed content, kept as typed" when its
+parts differ in kind but no two confirmed kinds split, "your default", or "your choice"), the
 prompt (40 lines at most on screen; the composer gets all of it), one Jev line,
 and the keys. The Jev line collapses what applied to its answer (`✓ question ×2
 · teh → the · concise answer`) and lists, with its confidence, only what Jev
@@ -420,14 +423,18 @@ claude plugin validate --strict claude/
 ## Eval
 
 `evals/cases.jsonl` holds 25 look-alike drafts, modelled on real Alt+G use, each with the format it
-should come out in, whether notes are expected, and phrases that must survive.
-The live run sends each one with the Alt+G editor's options and scores four
-checks per case:
+should come out in, whether notes are expected, phrases that must survive, and,
+for mixed drafts, which roles each anchored phrase may take (`expect.tags`). The
+live run sends each one with the Alt+G editor's options and scores five checks,
+worth six points per case:
 1. **Lossless:** every draft word is still there, unless an applied filler
    removal or edit explains it.
 2. **Format:** the output uses the expected format.
 3. **Notes:** notes appear only where expected.
 4. **Keep:** the must-keep phrases survive.
+5. **Tags (2 points):** each anchored phrase sits in untagged text or under one of
+   its allowed roles. Plain output passes; tagged output of a case with no anchors
+   fails. A wrong tag costs more than lost structure.
 
 ```sh
 cargo test -p jev-input-standardizer --test eval --release -- --ignored --nocapture
@@ -435,5 +442,5 @@ cargo test -p jev-input-standardizer --test eval --release -- --ignored --nocapt
 
 It fails when the total drops below `evals/baseline.json` and writes each output to
 `evals/results/latest.json`, which is gitignored. After an intended change, rerun
-it with `JEV_EVAL_BASELINE=update`. Runs can vary by a check, so the baseline
-is the lowest total seen.
+it with `JEV_EVAL_BASELINE=update`. Runs can vary by a check or two, so the
+baseline keeps each case's lowest score seen.
