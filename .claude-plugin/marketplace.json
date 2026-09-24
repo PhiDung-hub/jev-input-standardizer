@@ -1,0 +1,16 @@
+{
+  "name": "jev-input-standardizer",
+  "owner": {
+    "name": "PhiDung-hub"
+  },
+  "description": "Preview Jev-segmented drafts in the target model's native format, with Jev-selected conversation context.",
+  "plugins": [
+    {
+      "name": "jev-input-standardizer",
+      "source": "./claude",
+      "description": "Preview Jev-segmented drafts in the target model's native format, with Jev-selected conversation context.",
+      "version": "0.11.4",
+      "license": "MIT"
+    }
+  ]
+}

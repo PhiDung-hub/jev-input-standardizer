@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jev Input Standardizer"
+  short_description: "Preview Jev-standardized input in the target model's format"
+  default_prompt: "Use $jev-input-standardizer to standardize this context and show the exact LLM input preview."

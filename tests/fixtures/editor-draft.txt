@@ -1,0 +1,5 @@
+Please, if possible, implement the parser.
+
+The parser receives newline-delimited JSON.
+
+Do not change the public API.

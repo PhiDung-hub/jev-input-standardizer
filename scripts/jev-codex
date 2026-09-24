@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+export JEV_STANDARDIZER_HOST=Codex
+export VISUAL=${JEV_STANDARDIZER_EDITOR:-jev-input-standardizer-editor}
+export EDITOR=$VISUAL
+exec codex "$@"

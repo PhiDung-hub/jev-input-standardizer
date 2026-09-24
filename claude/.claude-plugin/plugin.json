@@ -1,0 +1,7 @@
+{
+  "name": "jev-input-standardizer",
+  "version": "0.11.4",
+  "description": "Preview Jev-segmented drafts in the target model's native format, with Jev-selected conversation context.",
+  "author": { "name": "TypeSafe Rust SDK contributors" },
+  "license": "MIT"
+}

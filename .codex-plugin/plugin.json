@@ -1,0 +1,22 @@
+{
+  "name": "jev-input-standardizer",
+  "version": "0.11.4+codex.20260924060952",
+  "description": "Preview and accept Jev-standardized drafts in the target model's native format.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Jev Input Standardizer",
+    "shortDescription": "Review Jev-formatted composer drafts.",
+    "longDescription": "Uses Alt+G in the Codex composer for a TUI-safe preview and acceptance flow. In one fan-out, Jev chooses semantic boundaries, reviews bounded typo and question edits, flags downstream research, marks the earlier turns the draft depends on, and renders it in the target model's standard format (Markdown sections for GPT, XML for Claude) before the accepted payload returns to the composer.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [
+      "External editor workflow",
+      "TypeSafe AI",
+      "Target-native prompt formats"
+    ],
+    "defaultPrompt": "Explain how to use the Jev preview hotkey in Codex."
+  }
+}

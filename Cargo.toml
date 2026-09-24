@@ -1,0 +1,56 @@
+[package]
+name = "jev-input-standardizer"
+version = "0.11.4"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Low-latency Jev-guided prompt standardization in each target model's native format"
+readme = "README.md"
+
+[features]
+default = []
+server = ["dep:axum", "dep:reqwest", "tokio/net"]
+
+[[bin]]
+name = "jev-input-standardizer-server"
+path = "src/bin/server.rs"
+required-features = ["server"]
+
+[[bin]]
+name = "jev-input-standardizer-editor"
+path = "src/bin/editor.rs"
+
+[dependencies]
+axum = { version = "0.8", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt-multi-thread", "time"] }
+toon-format = { version = "0.5", default-features = false }
+typesafe-ai = { git = "https://github.com/PhiDung-hub/typesafe-rust", rev = "47b9e1ab25ba3ec8750129f6976c3e374342eef7" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["termios"] }
+
+[dev-dependencies]
+dotenvy = "0.15"
+httpmock = "0.8"
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true
+
+[workspace]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
